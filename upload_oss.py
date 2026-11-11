@@ -14,6 +14,9 @@
     OSS_BUCKET             bucket 名
     OSS_ENDPOINT           https://oss-cn-hangzhou.aliyuncs.com
     OSS_KEY                对象路径，默认 voidlens/table_v1.json.gz
+    OSS_CACHE              Cache-Control，默认 max-age=300（status 用 30）
+    OSS_TYPE               Content-Type，默认 application/gzip
+    OSS_VERIFY=1           传完 HEAD 一次，确认匿名可读（公共读没配好会立刻发现）
 """
 
 import os
@@ -37,15 +40,29 @@ def main(argv):
 
     import oss2  # 只有真的要传时才需要
 
+    cache = (os.environ.get('OSS_CACHE') or 'max-age=300').strip()
+    ctype = (os.environ.get('OSS_TYPE') or 'application/gzip').strip()
     size = os.path.getsize(path)
     bucket = oss2.Bucket(oss2.Auth(ak, sk), endpoint, bucket_name)
     bucket.put_object_from_file(
         key, path,
-        headers={'Cache-Control': 'max-age=300', 'Content-Type': 'application/gzip'},
+        headers={'Cache-Control': cache, 'Content-Type': ctype},
     )
     url = '%s/%s/%s' % (endpoint.replace('://', '://%s.' % bucket_name, 1).rstrip('/'),
                         key.split('/')[0] if '/' in key else '', key.split('/', 1)[-1])
-    print('OSS OK · %s · %d 字节\n客户端地址：%s' % (key, size, url))
+    print('OSS OK · %s · %d 字节 · Cache-Control: %s\n客户端地址：%s' % (key, size, cache, url))
+
+    if (os.environ.get('OSS_VERIFY') or '').strip() in ('1', 'true', 'yes'):
+        # 匿名 HEAD：桶是公共读、对象存在 → 200。403 就是权限没配对。
+        import urllib.error
+        import urllib.request
+        req = urllib.request.Request(url, method='HEAD')
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                print('匿名可读 ✓ HTTP %d · %s 字节' % (resp.status, resp.headers.get('Content-Length')))
+        except urllib.error.HTTPError as exc:
+            print('匿名可读 ✗ HTTP %d —— 检查 Bucket 读权限（应设为公共读）' % exc.code)
+            return 1
     return 0
 
 
