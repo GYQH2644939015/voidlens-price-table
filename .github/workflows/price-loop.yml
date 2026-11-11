@@ -27,7 +27,9 @@ permissions:
   actions: write          # 派下一班（workflow_dispatch）需要
 
 concurrency:
-  group: price-loop
+  # 和 price-table.yml 用同一个组：手动 / push 触发的那次抓取不会和接力链撞车
+  # （撞车的后果见 2026-11-11 18:53 那次：两条同时跑，第二条在 commit 步骤 rebase 冲突失败）
+  group: price-table
   cancel-in-progress: false
 
 jobs:
