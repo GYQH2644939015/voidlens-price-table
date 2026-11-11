@@ -1,0 +1,58 @@
+name: hourly-price-table
+
+# 每小时生成一次 wm 价目表并提交回仓库。
+# public 仓库的 Actions 分钟数不限；private 只有 2000 分钟/月，撑不住每小时一跑。
+
+on:
+  schedule:
+    - cron: '7 * * * *'        # 每小时第 7 分钟，避开整点排队
+  workflow_dispatch:           # 手动补跑
+  push:
+    paths-ignore:
+      - 'table_v1.json.gz'
+      - 'README.md'
+
+concurrency:
+  group: price-table
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: deps
+        run: pip install --quiet -r requirements.txt
+
+      - name: build table
+        run: python vl_publish.py --out table_v1.json.gz --rate 3 --workers 8
+
+      - name: check table
+        run: python check_table.py table_v1.json.gz
+
+      - name: commit
+        run: |
+          git config user.name  "voidlens-price-bot"
+          git config user.email "price-bot@users.noreply.github.com"
+          git add table_v1.json.gz
+          if git diff --staged --quiet; then
+            echo "表内容没变，跳过提交"
+          else
+            git commit -m "table $(date -u +%FT%TZ)"
+            git push
+          fi
+
+      # jsDelivr 对分支引用有缓存（最长约 12 小时），每轮推一次 purge 让它立刻失效
+      - name: purge jsDelivr cache
+        if: always()
+        run: |
+          curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@main/table_v1.json.gz" || true
