@@ -6,6 +6,8 @@ name: price-table
 # 一天一次对 wm 的压力是 0.05 请求/秒；每小时一次就变成 1.4 请求/秒，没必要。
 #
 # 时间：12:07 UTC = 20:07 北京时间（晚场开打前刚好刷完）。
+# --workers 24：GitHub runner 到 wm 的往返约 8–10 秒，8 个线程只能跑到 0.6 条/秒
+# （实测 35 分钟才抓 1350 条）；24 个线程才能把 3 请求/秒的桶喂满，约 25–35 分钟跑完。
 # public 仓库的 Actions 分钟数不限；private 只有 2000 分钟/月，这个任务一天一次也够，
 # 但仍然是 public 更省心。
 
@@ -40,7 +42,7 @@ jobs:
         run: pip install --quiet -r requirements.txt
 
       - name: build table
-        run: python vl_publish.py --scope full --out table_v1.json.gz --rate 3 --workers 8
+        run: python vl_publish.py --scope full --out table_v1.json.gz --rate 3 --workers 24
 
       - name: check table
         run: python check_table.py table_v1.json.gz
