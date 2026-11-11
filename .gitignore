@@ -4,3 +4,4 @@ __pycache__/
 *.tmp-*
 _demo/
 .ssh_deploy/
+trigger.log
