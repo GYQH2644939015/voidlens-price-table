@@ -47,7 +47,10 @@ concurrency:
 
 jobs:
   publish:
-    if: vars.TABLE_OFF != 'true'
+    # 停用开关：仓库变量 PUBLISH_OFF=true。
+    # 注意别沿用旧名字 TABLE_OFF —— 这个仓库里 TABLE_OFF 现在是 'true'（当初停接力链时设的），
+    # 当前 token 没有 Variables 权限删不掉它，所以换一个新名字，行为才可控。
+    if: vars.PUBLISH_OFF != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
