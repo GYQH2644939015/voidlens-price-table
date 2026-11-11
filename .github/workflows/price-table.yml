@@ -1,3 +1,4 @@
+# schedule re-registered: 2026-11-12 01:08 CST (touch to force GitHub to re-read cron)
 name: price-table
 
 # 每小时一次，抓「热区」价目表：Prime 759 + 安魂 mod 8 + 阿耶檀识青蓝星/琥珀星 2 = 769 条。
