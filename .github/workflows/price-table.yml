@@ -15,10 +15,18 @@ on:
   schedule:
     - cron: '7 12 * * *'
   workflow_dispatch:
+    inputs:
+      scope:
+        description: '抓取范围（full=全部 3893 条；prime=Prime+安魂+星 769 条）'
+        required: false
+        default: 'full'
+        type: choice
+        options: ['full', 'prime']
   push:
     paths-ignore:
       - 'table_v1.json.gz'
       - 'README.md'
+      - '.github/**'          # 只改 workflow 不触发跑（想试就手动 Run workflow）
 
 concurrency:
   group: price-table
@@ -42,7 +50,10 @@ jobs:
         run: pip install --quiet -r requirements.txt
 
       - name: build table
-        run: python vl_publish.py --scope full --out table_v1.json.gz --rate 3 --workers 24
+        env:
+          # 定时任务没有 inputs，默认 full；手动触发可以选 prime（769 条，4–5 分钟）
+          SCOPE: ${{ github.event.inputs.scope || 'full' }}
+        run: python vl_publish.py --scope "$SCOPE" --out table_v1.json.gz --rate 3 --workers 24
 
       - name: check table
         run: python check_table.py table_v1.json.gz
