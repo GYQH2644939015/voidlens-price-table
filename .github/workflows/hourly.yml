@@ -49,7 +49,17 @@ jobs:
           git add table_v1.json.gz
           if git diff --staged --quiet; then
             echo "表内容没变，跳过提交"
-          else
-            git commit -m "table $(date -u +%FT%TZ)"
-            git push
+            exit 0
           fi
+          git commit -m "table $(date -u +%FT%TZ)"
+          # 抓取要 4-6 分钟，期间有人往 main 推过（比如改了文档）就会被拒：
+          # rebase 到最新 main 再推，最多三次
+          for i in 1 2 3; do
+            if git pull --rebase --autostash origin main && git push; then
+              echo "pushed on attempt $i"
+              exit 0
+            fi
+            sleep $((i * 5))
+          done
+          echo "::error::三次都推不上去，检查分支保护或权限"
+          exit 1
