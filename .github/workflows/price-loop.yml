@@ -48,6 +48,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # 要查 table 上次提交时间，浅克隆查不到
 
       - uses: actions/setup-python@v5
         with:
@@ -75,14 +77,25 @@ jobs:
         if: github.event.inputs.phase != 'stop'
         run: python check_table.py table_v1.json.gz
 
-      - name: commit
+      - name: commit（默认每 6 小时才提交一次，其余时间只更新 OSS）
         if: github.event.inputs.phase != 'stop'
+        env:
+          # 仓库提交节流：内容变了也不一定马上提交，降低「每小时一个 bot 提交」的噪音
+          COMMIT_EVERY_H: ${{ vars.COMMIT_EVERY_H || '6' }}
         run: |
           git config user.name  "voidlens-price-bot"
           git config user.email "price-bot@users.noreply.github.com"
           git add table_v1.json.gz
           if git diff --staged --quiet; then
             echo "表内容没变，跳过提交"
+            exit 0
+          fi
+          LAST=$(git log -1 --format=%ct -- table_v1.json.gz 2>/dev/null || echo 0)
+          NOW=$(date -u +%s)
+          EVERY=$(( ${COMMIT_EVERY_H:-6} * 3600 ))
+          if [ "${LAST:-0}" -gt 0 ] && [ $((NOW - LAST)) -lt "$EVERY" ]; then
+            echo "距上次提交只过了 $(( (NOW - LAST) / 60 )) 分钟（阈值 ${COMMIT_EVERY_H}h），这次只更新 OSS，不提交"
+            echo "::notice::仓库提交节流：表已更新，仓库稍后合并"
             exit 0
           fi
           git commit -m "table $(date -u +%FT%TZ)"
