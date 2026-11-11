@@ -1,6 +1,6 @@
 # 价目表发布 · 一次性班次（无 sleep、无接力、无 schedule）
 #
-# 设计原则：这个 workflow 只做一件事——被抓起来就抓一次表、传一次 OSS、提交一次仓库，
+# 设计原则：这个 workflow 只做一件事——被抓起来就抓一次表、提交一次仓库，
 # 然后结束。它不负责"下一次什么时候跑"，那是触发器的事（阿里云 FC 定时器 / 本机计划任务
 # / 手动 Run），见 云端同步方案_v1.0_国内优先.md 第 4.2 节。
 #
@@ -69,10 +69,6 @@ jobs:
         id: gate
         env:
           FORCE: ${{ github.event.inputs.force || 'false' }}
-          # 与上传步骤保持一致（变量里那个桶名建不出来，见上传步骤的注释）
-          OSS_BUCKET: voidlens-table-2644939015
-          OSS_ENDPOINT: https://oss-cn-beijing.aliyuncs.com
-          OSS_KEY: voidlens/table_v1.json.gz
         run: |
           set -u
           if [ "${FORCE}" = "true" ]; then
@@ -80,23 +76,11 @@ jobs:
             echo "::notice::force=true，跳过防重"
             exit 0
           fi
-          KEY="${OSS_KEY:-voidlens/table_v1.json.gz}"
-          LAST=0
-          LM=""
-          if [ -n "${OSS_BUCKET:-}" ] && [ -n "${OSS_ENDPOINT:-}" ]; then
-            URL=$(printf '%s' "$OSS_ENDPOINT" | sed "s#://#://${OSS_BUCKET}.#")"/${KEY}"
-            LM=$(curl -sI --max-time 10 "$URL" | tr -d '\r' \
-                 | awk -F': ' 'tolower($1)=="last-modified"{print $2}')
-            echo "OSS 表的 Last-Modified：${LM:-（拿不到）}"
-            if [ -n "${LM:-}" ]; then LAST=$(date -d "$LM" +%s 2>/dev/null || echo 0); fi
-          fi
-          if [ "${LAST}" -eq 0 ]; then
-            LAST=$(git log -1 --format=%ct -- table_v1.json.gz 2>/dev/null || echo 0)
-            echo "退回仓库提交时间作为参考"
-          fi
+          # 纯 GitHub 方案：判据 = 仓库里 table_v1.json.gz 上次提交的时间
+          LAST=$(git log -1 --format=%ct -- table_v1.json.gz 2>/dev/null || echo 0)
           NOW=$(date +%s)
           AGE=$(( NOW - LAST ))
-          echo "上次发布距今 ${AGE}s（约 $(( AGE / 60 )) 分钟）"
+          echo "上次提交距今 ${AGE}s（约 $(( AGE / 60 )) 分钟）"
           if [ "${LAST}" -gt 0 ] && [ "${AGE}" -lt 2400 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "::notice::40 分钟内已经出过表，本班跳过（要强制就填 force=true）"
@@ -127,49 +111,14 @@ jobs:
           python publish_status.py table_v1.json.gz publish_status.json || true
           cat publish_status.json || true
 
-      - name: 上传到 OSS（国内分发源）
-        # 只有自检通过的表才上传：坏表绝不能用一次 PUT 顶掉云端那份好的
-        id: oss
-        if: always() && steps.gate.outputs.skip != 'true'
-        continue-on-error: true
-        env:
-          OSS_AK: ${{ secrets.OSS_AK }}
-          OSS_SK: ${{ secrets.OSS_SK }}
-          # 仓库变量里的那个名字（voidlens-price-2644939015）已被别的账号占用，建不出来（409 BucketAlreadyExists），
-          # 所以这里写死真正建成的桶；变量只当历史遗留，不再读取。
-          OSS_BUCKET: voidlens-table-2644939015
-          OSS_ENDPOINT: https://oss-cn-beijing.aliyuncs.com
-          OSS_KEY: voidlens/table_v1.json.gz
-          OSS_VERIFY: '1'
-          OSS_MARKER: '1'
-          CHECK: ${{ steps.check.outcome }}
-        run: |
-          set +e                      # 单次上传失败不要吞掉后面的状态上传
-          pip install --quiet oss2
-          KEY="${OSS_KEY:-voidlens/table_v1.json.gz}"
-          if [ "${CHECK}" = "success" ] && [ -f table_v1.json.gz ]; then
-            OSS_MARKER=1 python upload_oss.py table_v1.json.gz
-            echo "table 上传退出码 $?"
-          else
-            echo "自检未通过（${CHECK}），本次只传发布状态，不动云端那张表"
-          fi
-          if [ -f publish_status.json ]; then
-            # status 放同一个目录，缓存 30 秒；不写 marker（marker 只代表"表"传成功）
-            OSS_MARKER=0 OSS_KEY="${KEY%/*}/publish_status.json" OSS_CACHE="max-age=30" \
-              python upload_oss.py publish_status.json || true
-          fi
-          echo "--- oss_result.json:"; cat oss_result.json 2>/dev/null
-          echo "--- marker:"; ls -l oss_ok.marker 2>/dev/null || echo "（没有 marker）"
-
       - name: 提交仓库副本（默认 6 小时才提交一次，降低 bot 提交噪音）
         if: steps.check.outcome == 'success'
         env:
           COMMIT_EVERY_H: ${{ vars.COMMIT_EVERY_H || '6' }}
-          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
         run: |
           git config user.name  "voidlens-price-bot"
           git config user.email "price-bot@users.noreply.github.com"
-          git add table_v1.json.gz
+          git add table_v1.json.gz publish_status.json 2>/dev/null || git add table_v1.json.gz
           if git diff --staged --quiet; then
             echo "表内容没变，跳过提交"
             exit 0
@@ -177,14 +126,10 @@ jobs:
           LAST=$(git log -1 --format=%ct -- table_v1.json.gz 2>/dev/null || echo 0)
           NOW=$(date -u +%s)
           EVERY=$(( ${COMMIT_EVERY_H:-6} * 3600 ))
-          # 以"OSS 到底传没传成功"为准，而不是"有没有配 OSS"——配了但桶坏了的时候，
-          # 两边都以为对方会分发，结果谁都没更新（05:39 那一班就是这么空转的）。
-          if [ ! -f oss_ok.marker ]; then
-            EVERY=0
-            echo "OSS 没传成功（没有 marker）→ 仓库就是唯一分发源，本班直接提交"
-          fi
+          # 纯 GitHub 方案：仓库就是分发源，每班都提交（反代/raw 立刻能拿到新表）
+          EVERY=0
           if [ "${LAST:-0}" -gt 0 ] && [ $((NOW - LAST)) -lt "$EVERY" ]; then
-            echo "距上次提交 $(( (NOW - LAST) / 60 )) 分钟（阈值 ${COMMIT_EVERY_H}h），本班只更新 OSS"
+            echo "距上次提交 $(( (NOW - LAST) / 60 )) 分钟，本班跳过提交"
             exit 0
           fi
           git commit -m "table $(date -u +%FT%TZ)"
@@ -196,7 +141,7 @@ jobs:
             sleep $((i * 5))
           done
           git rebase --abort 2>/dev/null || true
-          echo "::warning::仓库副本没推上去（并发 rebase 冲突），OSS 那张表已经是最新的"
+          echo "::warning::仓库副本没推上去（并发 rebase 冲突），下一班再试"
 
       - name: 让 jsDelivr 立刻生效（免费 purge，不需要账号）
         # 只清 cdn.jsdelivr.net 的缓存；fastly.jsdelivr.net 是另一套缓存，清不掉、会滞后最多 12 h
