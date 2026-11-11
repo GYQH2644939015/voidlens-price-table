@@ -20,9 +20,12 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: 'chain=先排队，等到下一个整点 :07 再抓'
+        # now   = 立刻抓一次就结束（给国内云函数闹钟用，不占 runner 睡觉）
+        # chain = 等到下一个整点 :07 再抓，然后派下一班（接力链，7×24 兜底）
+        # stop  = 只清理别的班次、自己不发布也不续班（停链条用）
+        description: 'now / chain / stop'
         required: false
-        default: 'chain'
+        default: 'now'
   push:
     paths:
       - 'LOOP_KICK'
@@ -59,18 +62,21 @@ jobs:
         run: python loop_ctl.py prune
 
       - name: 等到下一个整点 :07
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.phase == 'chain'
         run: python loop_ctl.py wait
 
       - name: build table
+        if: github.event.inputs.phase != 'stop'
         env:
           SCOPE: ${{ vars.TABLE_SCOPE || 'prime' }}
         run: python vl_publish.py --scope "$SCOPE" --out table_v1.json.gz --rate 3 --workers 24
 
       - name: check table
+        if: github.event.inputs.phase != 'stop'
         run: python check_table.py table_v1.json.gz
 
       - name: commit
+        if: github.event.inputs.phase != 'stop'
         run: |
           git config user.name  "voidlens-price-bot"
           git config user.email "price-bot@users.noreply.github.com"
@@ -91,6 +97,7 @@ jobs:
           exit 1
 
       - name: 上传到 OSS（国内分发源，没配就跳过）
+        if: github.event.inputs.phase != 'stop'
         continue-on-error: true
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
@@ -102,8 +109,8 @@ jobs:
           pip install --quiet oss2
           python upload_oss.py table_v1.json.gz
 
-      - name: 把下一班排上（本班失败也照排，链条不断）
-        if: always()
+      - name: 把下一班排上（now 不续班；其余情况失败也照排，链条不断）
+        if: always() && github.event.inputs.phase != 'now' && github.event.inputs.phase != 'stop'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python loop_ctl.py handoff
