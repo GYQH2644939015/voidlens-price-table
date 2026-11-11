@@ -1,0 +1,83 @@
+# 价格表的「自动接力链」——不依赖 GitHub 的 schedule。
+#
+# 为什么要有这条：本仓库的 `schedule` 从未触发过（建仓以来三条 workflow 全部 0 条
+# schedule 运行记录；push / 手动都是秒级响应），cron 不可依赖。
+# 于是每一班用 GITHUB_TOKEN 派下一班 workflow_dispatch，下一班自己睡到下一个整点 :07 抓表。
+# 官方文档：GITHUB_TOKEN 触发的事件不产生新运行，例外正是 workflow_dispatch / repository_dispatch。
+#
+# 代价：同一时间恒有一个 runner 在睡觉（公共仓库分钟数不限）。
+# 重启：改一行 LOOP_KICK 再 push 即可（链条断了也能靠这一下接上）。
+# 停掉：仓库变量 TABLE_OFF=true（和 price-table.yml 共用同一开关）。
+
+name: price-loop
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'chain=先排队，等到下一个整点 :07 再抓'
+        required: false
+        default: 'chain'
+  push:
+    paths:
+      - 'LOOP_KICK'
+
+permissions:
+  contents: write
+  actions: write          # 派下一班（workflow_dispatch）需要
+
+concurrency:
+  group: price-loop
+  cancel-in-progress: false
+
+jobs:
+  loop:
+    if: vars.TABLE_OFF != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: deps
+        run: pip install --quiet -r requirements.txt
+
+      - name: 先把下一班排上（本班失败也不断链）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python loop_ctl.py handoff
+
+      - name: 等到下一个整点 :07
+        if: github.event_name == 'workflow_dispatch'
+        run: python loop_ctl.py wait
+
+      - name: build table
+        env:
+          SCOPE: ${{ vars.TABLE_SCOPE || 'prime' }}
+        run: python vl_publish.py --scope "$SCOPE" --out table_v1.json.gz --rate 3 --workers 24
+
+      - name: check table
+        run: python check_table.py table_v1.json.gz
+
+      - name: commit
+        run: |
+          git config user.name  "voidlens-price-bot"
+          git config user.email "price-bot@users.noreply.github.com"
+          git add table_v1.json.gz
+          if git diff --staged --quiet; then
+            echo "表内容没变，跳过提交"
+            exit 0
+          fi
+          git commit -m "table $(date -u +%FT%TZ)"
+          for i in 1 2 3; do
+            if git pull --rebase --autostash origin main && git push; then
+              echo "pushed on attempt $i"
+              exit 0
+            fi
+            sleep $((i * 5))
+          done
+          echo "::error::三次都推不上去，检查分支保护或权限"
+          exit 1

@@ -30,6 +30,8 @@ on:
       - 'table_v1.json.gz'
       - 'README.md'
       - '.github/**'          # 只改 workflow 不触发跑（想试就手动 Run workflow）
+      - 'LOOP_KICK'           # 点火文件只叫醒 price-loop，别再额外跑一次全量抓取
+      - 'loop_ctl.py'         # 接力链自己的脚本
 
 concurrency:
   group: price-table
