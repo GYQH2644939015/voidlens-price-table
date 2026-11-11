@@ -61,10 +61,13 @@ git push -u origin main
 
 | 变量 | 作用 | 不设置时 |
 |---|---|---|
-| `TABLE_ENABLED = false` | **关掉整个定时任务**（跳过 fetch + commit，Actions 里显示 skipped） | 不设置 = 照常每天跑 |
+| `TABLE_OFF = true` | **关掉整个定时任务**（跳过 fetch + commit，Actions 里显示 skipped） | 不设置 = 照常每天跑 |
 | `TABLE_SCOPE = prime` | 把每天那次降级成 **769 条**（4–5 分钟），`full` 恢复全量 | 不设置 = `full`（3893 条） |
 
-恢复：把变量删掉，或者设回 `true` / `full`。
+恢复：把 `TABLE_OFF` 删掉（或设成 `false`）、把 `TABLE_SCOPE` 设回 `full`。
+
+> 早期版本用过 `TABLE_ENABLED = false` 当开关，已废弃（脚本不再读它）。如果你的变量列表里还留着一个，
+> 顺手删掉即可，不删也不影响。
 
 另一个更省事的关法：Actions → 左侧 `price-table` → 右上 **⋯ → Disable workflow**（GitHub 原生开关，跟我们这套变量是两条独立的路，任选其一）。
 

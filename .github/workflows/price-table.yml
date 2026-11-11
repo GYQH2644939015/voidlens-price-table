@@ -38,9 +38,10 @@ permissions:
 jobs:
   build:
     # 云端任务的总开关：仓库 Settings → Secrets and variables → Actions → Variables
-    #   新增 TABLE_ENABLED = false  →  整条定时任务跳过（不再抓、不再提交）
-    #   删掉这个变量（或设成 true）→  恢复每天跑
-    if: vars.TABLE_ENABLED != 'false'
+    #   新增 TABLE_OFF = true  →  整条定时任务跳过（不抓取、不提交，Actions 里显示 skipped）
+    #   删掉这个变量 / 设成 false  →  恢复每天跑（默认就是跑）
+    # 说明：变量不存在时表达式为 null，null != 'true' 成立，所以默认是「开」。
+    if: vars.TABLE_OFF != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90          # 全量要 25–35 分钟，留足余量
     steps:
