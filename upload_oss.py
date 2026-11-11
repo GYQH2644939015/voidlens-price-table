@@ -19,8 +19,21 @@
     OSS_VERIFY=1           传完 HEAD 一次，确认匿名可读（公共读没配好会立刻发现）
 """
 
+import json
 import os
 import sys
+import time
+
+
+def write_result(ok, extra=None):
+    """把本次上传结果落盘，供后续步骤判断"OSS 到底有没有成功"（continue-on-error 会掩盖失败）。"""
+    data = {'ok': bool(ok), 'at': round(time.time(), 1)}
+    data.update(extra or {})
+    try:
+        with open('oss_result.json', 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
+    except OSError:
+        pass
 
 
 def main(argv):
@@ -33,9 +46,11 @@ def main(argv):
 
     if not (ak and sk and bucket_name):
         print('OSS 未配置（缺 OSS_AK / OSS_SK / OSS_BUCKET），跳过上传')
+        write_result(False, {'reason': 'not-configured'})
         return 0
     if not os.path.exists(path):
         print('找不到 %s，跳过上传' % path)
+        write_result(False, {'reason': 'missing-file'})
         return 0
 
     import oss2  # 只有真的要传时才需要
@@ -62,7 +77,9 @@ def main(argv):
                 print('匿名可读 ✓ HTTP %d · %s 字节' % (resp.status, resp.headers.get('Content-Length')))
         except urllib.error.HTTPError as exc:
             print('匿名可读 ✗ HTTP %d —— 检查 Bucket 读权限（应设为公共读）' % exc.code)
+            write_result(False, {'reason': 'not-public', 'http': exc.code, 'url': url, 'key': key})
             return 1
+    write_result(True, {'url': url, 'key': key, 'bytes': size})
     return 0
 
 

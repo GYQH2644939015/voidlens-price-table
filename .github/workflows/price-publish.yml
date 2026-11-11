@@ -69,9 +69,10 @@ jobs:
         id: gate
         env:
           FORCE: ${{ github.event.inputs.force || 'false' }}
-          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
-          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
-          OSS_KEY: ${{ vars.OSS_KEY }}
+          # 与上传步骤保持一致（变量里那个桶名建不出来，见上传步骤的注释）
+          OSS_BUCKET: voidlens-table-2644939015
+          OSS_ENDPOINT: https://oss-cn-beijing.aliyuncs.com
+          OSS_KEY: voidlens/table_v1.json.gz
         run: |
           set -u
           if [ "${FORCE}" = "true" ]; then
@@ -126,16 +127,20 @@ jobs:
           python publish_status.py table_v1.json.gz publish_status.json || true
           cat publish_status.json || true
 
-      - name: 上传到 OSS（国内分发源；没配就安静跳过）
+      - name: 上传到 OSS（国内分发源）
         # 只有自检通过的表才上传：坏表绝不能用一次 PUT 顶掉云端那份好的
+        id: oss
         if: always() && steps.gate.outputs.skip != 'true'
         continue-on-error: true
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
-          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
-          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
-          OSS_KEY: ${{ vars.OSS_KEY }}
+          # 仓库变量里的那个名字（voidlens-price-2644939015）已被别的账号占用，建不出来（409 BucketAlreadyExists），
+          # 所以这里写死真正建成的桶；变量只当历史遗留，不再读取。
+          OSS_BUCKET: voidlens-table-2644939015
+          OSS_ENDPOINT: https://oss-cn-beijing.aliyuncs.com
+          OSS_KEY: voidlens/table_v1.json.gz
+          OSS_VERIFY: '1'
           CHECK: ${{ steps.check.outcome }}
         run: |
           pip install --quiet oss2
@@ -150,6 +155,7 @@ jobs:
             OSS_KEY="${KEY%/*}/publish_status.json" OSS_CACHE="max-age=30" \
               python upload_oss.py publish_status.json
           fi
+          cat oss_result.json 2>/dev/null || true
 
       - name: 提交仓库副本（默认 6 小时才提交一次，降低 bot 提交噪音）
         if: steps.check.outcome == 'success'
@@ -167,10 +173,12 @@ jobs:
           LAST=$(git log -1 --format=%ct -- table_v1.json.gz 2>/dev/null || echo 0)
           NOW=$(date -u +%s)
           EVERY=$(( ${COMMIT_EVERY_H:-6} * 3600 ))
-          if [ -z "${OSS_BUCKET:-}" ]; then
-            # 没配 OSS 时仓库就是主分发：必须每班都提交，否则客户端只能看到节流前那张旧表
+          # 以"OSS 到底传没传成功"为准，而不是"有没有配 OSS"——配了但桶坏了的时候，
+          # 两边都以为对方会分发，结果谁都没更新（05:39 那一班就是这么空转的）。
+          OSS_OK=$(grep -c '"ok":true' oss_result.json 2>/dev/null || echo 0)
+          if [ "${OSS_OK:-0}" -eq 0 ]; then
             EVERY=0
-            echo "未配置 OSS → 仓库是主分发，本班直接提交"
+            echo "OSS 没传成功 → 仓库就是唯一分发源，本班直接提交"
           fi
           if [ "${LAST:-0}" -gt 0 ] && [ $((NOW - LAST)) -lt "$EVERY" ]; then
             echo "距上次提交 $(( (NOW - LAST) / 60 )) 分钟（阈值 ${COMMIT_EVERY_H}h），本班只更新 OSS"
