@@ -17,7 +17,11 @@ https://cdn.jsdelivr.net/gh/<你的用户名>/voidlens-price-table@main/table_v1
 https://raw.githubusercontent.com/<你的用户名>/voidlens-price-table/main/table_v1.json.gz
 ```
 
-首选 jsDelivr（国内可达），失败自动退到 raw。
+顺序建议：**先 raw、后 jsDelivr**。
+
+- `raw.githubusercontent.com` 每小时的 :07 生成、约 :13 就能拿到（实测滞后 5 分钟）；
+- `cdn.jsdelivr.net` 由 `purge-cdn.yml` 在 :25 刷新，滞后约 20 分钟，但国内可达性好；
+- 客户端两个都配，前一个失败自动退到下一个。
 
 命令行手动应用（P1 的 exe 还没接进来之前可以这么用）：
 
