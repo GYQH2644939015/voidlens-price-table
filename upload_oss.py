@@ -25,6 +25,9 @@ import sys
 import time
 
 
+MARKER = 'oss_ok.marker'
+
+
 def write_result(ok, extra=None):
     """把本次上传结果落盘，供后续步骤判断"OSS 到底有没有成功"（continue-on-error 会掩盖失败）。"""
     data = {'ok': bool(ok), 'at': round(time.time(), 1)}
@@ -32,6 +35,17 @@ def write_result(ok, extra=None):
     try:
         with open('oss_result.json', 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
+    except OSError:
+        pass
+    # 给后续步骤一个"零解析成本"的判据：有 oss_ok.marker 就是真传成功了。
+    # 只有显式 OSS_MARKER=1 的那次上传才写标记（表），避免"状态文件传成功"被当成"表传成功"。
+    try:
+        want_marker = (os.environ.get('OSS_MARKER') or '').strip() in ('1', 'true', 'yes')
+        if ok and want_marker:
+            with open(MARKER, 'w', encoding='utf-8') as f:
+                f.write(str(data.get('at', '')))
+        elif not ok and os.path.exists(MARKER):
+            os.remove(MARKER)
     except OSError:
         pass
 

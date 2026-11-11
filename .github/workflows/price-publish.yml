@@ -141,21 +141,25 @@ jobs:
           OSS_ENDPOINT: https://oss-cn-beijing.aliyuncs.com
           OSS_KEY: voidlens/table_v1.json.gz
           OSS_VERIFY: '1'
+          OSS_MARKER: '1'
           CHECK: ${{ steps.check.outcome }}
         run: |
+          set +e                      # 单次上传失败不要吞掉后面的状态上传
           pip install --quiet oss2
           KEY="${OSS_KEY:-voidlens/table_v1.json.gz}"
           if [ "${CHECK}" = "success" ] && [ -f table_v1.json.gz ]; then
-            python upload_oss.py table_v1.json.gz
+            OSS_MARKER=1 python upload_oss.py table_v1.json.gz
+            echo "table 上传退出码 $?"
           else
             echo "自检未通过（${CHECK}），本次只传发布状态，不动云端那张表"
           fi
           if [ -f publish_status.json ]; then
-            # status 放同一个目录，缓存 30 秒
-            OSS_KEY="${KEY%/*}/publish_status.json" OSS_CACHE="max-age=30" \
-              python upload_oss.py publish_status.json
+            # status 放同一个目录，缓存 30 秒；不写 marker（marker 只代表"表"传成功）
+            OSS_MARKER=0 OSS_KEY="${KEY%/*}/publish_status.json" OSS_CACHE="max-age=30" \
+              python upload_oss.py publish_status.json || true
           fi
-          cat oss_result.json 2>/dev/null || true
+          echo "--- oss_result.json:"; cat oss_result.json 2>/dev/null
+          echo "--- marker:"; ls -l oss_ok.marker 2>/dev/null || echo "（没有 marker）"
 
       - name: 提交仓库副本（默认 6 小时才提交一次，降低 bot 提交噪音）
         if: steps.check.outcome == 'success'
@@ -175,10 +179,9 @@ jobs:
           EVERY=$(( ${COMMIT_EVERY_H:-6} * 3600 ))
           # 以"OSS 到底传没传成功"为准，而不是"有没有配 OSS"——配了但桶坏了的时候，
           # 两边都以为对方会分发，结果谁都没更新（05:39 那一班就是这么空转的）。
-          OSS_OK=$(grep -c '"ok":true' oss_result.json 2>/dev/null || echo 0)
-          if [ "${OSS_OK:-0}" -eq 0 ]; then
+          if [ ! -f oss_ok.marker ]; then
             EVERY=0
-            echo "OSS 没传成功 → 仓库就是唯一分发源，本班直接提交"
+            echo "OSS 没传成功（没有 marker）→ 仓库就是唯一分发源，本班直接提交"
           fi
           if [ "${LAST:-0}" -gt 0 ] && [ $((NOW - LAST)) -lt "$EVERY" ]; then
             echo "距上次提交 $(( (NOW - LAST) / 60 )) 分钟（阈值 ${COMMIT_EVERY_H}h），本班只更新 OSS"
