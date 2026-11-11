@@ -209,8 +209,9 @@ class Market:
 
 
 # --------------------------------------------------------------------- 范围
-def select_scope(items):
-    """Prime 全量 + 安魂 mod（8 个）+ 阿耶檀识青蓝星 / 琥珀星。"""
+def select_scope(items, mode='prime'):
+    """mode=prime：Prime + 安魂 mod + 阿耶檀识青蓝星/琥珀星（769 条）
+    mode=full ：物品表里所有条目（几千条，给「每天一次全量表」用）"""
     prime, stars, requiem = [], [], []
     seen = set()
     for item in items or []:
@@ -228,8 +229,12 @@ def select_scope(items):
         if slug not in seen:
             requiem.append(slug)
             seen.add(slug)
-    return {'prime': sorted(set(prime)), 'star': sorted(set(stars)),
-            'requiem': list(requiem)}
+    out = {'prime': sorted(set(prime)), 'star': sorted(set(stars)),
+           'requiem': list(requiem)}
+    if mode == 'full':
+        out['full'] = sorted({str(item.get('slug') or '') for item in items or []
+                              if str(item.get('slug') or '')})
+    return out
 
 
 def load_items(path=None):
@@ -302,6 +307,8 @@ def encode_table(table):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='wm 价目表发布端')
     parser.add_argument('--items', help='market_items.json 路径（默认用部署目录里的）')
+    parser.add_argument('--scope', choices=('prime', 'full'), default='prime',
+                        help='prime=769 条（Prime+安魂+星）；full=物品表全部（几千条）')
     parser.add_argument('--out', default='table_v1.json.gz', help='产出文件')
     parser.add_argument('--limit', type=int, default=0, help='只抓前 N 条（演示 / 试跑）')
     parser.add_argument('--rate', type=float, default=RATE, help='每秒请求上限')
@@ -314,14 +321,19 @@ def main(argv=None):
 
     default_items = r'C:\Users\Administrator\Desktop\WarframePriceHelperV5.4.1\market_items.json'
     items = load_items(args.items or default_items)
-    scope = select_scope(items)
-    targets = scope['prime'] + scope['star'] + scope['requiem']
+    scope = select_scope(items, args.scope)
+    targets = (scope['full'] if args.scope == 'full'
+               else scope['prime'] + scope['star'] + scope['requiem'])
     if args.limit:
         # 演示时三种范围都要有：均分取样，保证 requiem / star 不被挤掉
         picks = scope['requiem'][:4] + scope['star'][:2] + scope['prime'][:max(0, args.limit - 6)]
         targets = picks[:args.limit]
-    print(f'范围：Prime {len(scope["prime"])} · 星 {len(scope["star"])} · 安魂 {len(scope["requiem"])}'
-          f' → 本次抓 {len(targets)} 条')
+    if args.scope == 'full':
+        print(f'范围：全量 {len(scope["full"])} 条（其中 Prime {len(scope["prime"])}）'
+              f' → 本次抓 {len(targets)} 条')
+    else:
+        print(f'范围：Prime {len(scope["prime"])} · 星 {len(scope["star"])} '
+              f'· 安魂 {len(scope["requiem"])} → 本次抓 {len(targets)} 条')
 
     market = Market(proxy=args.proxy, rate=args.rate)
     started = time.time()
