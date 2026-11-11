@@ -152,6 +152,7 @@ jobs:
         if: steps.check.outcome == 'success'
         env:
           COMMIT_EVERY_H: ${{ vars.COMMIT_EVERY_H || '6' }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
         run: |
           git config user.name  "voidlens-price-bot"
           git config user.email "price-bot@users.noreply.github.com"
@@ -163,6 +164,11 @@ jobs:
           LAST=$(git log -1 --format=%ct -- table_v1.json.gz 2>/dev/null || echo 0)
           NOW=$(date -u +%s)
           EVERY=$(( ${COMMIT_EVERY_H:-6} * 3600 ))
+          if [ -z "${OSS_BUCKET:-}" ]; then
+            # 没配 OSS 时仓库就是主分发：必须每班都提交，否则客户端只能看到节流前那张旧表
+            EVERY=0
+            echo "未配置 OSS → 仓库是主分发，本班直接提交"
+          fi
           if [ "${LAST:-0}" -gt 0 ] && [ $((NOW - LAST)) -lt "$EVERY" ]; then
             echo "距上次提交 $(( (NOW - LAST) / 60 )) 分钟（阈值 ${COMMIT_EVERY_H}h），本班只更新 OSS"
             exit 0
