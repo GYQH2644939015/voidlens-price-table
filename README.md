@@ -55,6 +55,21 @@ git push -u origin main
 > 生成完立刻 purge 会让 jsDelivr 回源拿到旧表并缓存住。等到 :25 再 purge 就稳了。
 > 客户端拿到的表最多比生成时间晚约 1 小时，对开核桃的决策没有影响。
 
+## 开关（不用改代码）
+
+仓库 **Settings → Secrets and variables → Actions → Variables**：
+
+| 变量 | 作用 | 不设置时 |
+|---|---|---|
+| `TABLE_ENABLED = false` | **关掉整个定时任务**（跳过 fetch + commit，Actions 里显示 skipped） | 不设置 = 照常每天跑 |
+| `TABLE_SCOPE = prime` | 把每天那次降级成 **769 条**（4–5 分钟），`full` 恢复全量 | 不设置 = `full`（3893 条） |
+
+恢复：把变量删掉，或者设回 `true` / `full`。
+
+另一个更省事的关法：Actions → 左侧 `price-table` → 右上 **⋯ → Disable workflow**（GitHub 原生开关，跟我们这套变量是两条独立的路，任选其一）。
+
+手动补跑：Actions → `price-table` → **Run workflow**，可以临时选 `full` 或 `prime`，不影响定时任务的默认值。
+
 ## 每小时的负载
 
 | 项 | 数值 |

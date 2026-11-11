@@ -37,6 +37,10 @@ permissions:
 
 jobs:
   build:
+    # 云端任务的总开关：仓库 Settings → Secrets and variables → Actions → Variables
+    #   新增 TABLE_ENABLED = false  →  整条定时任务跳过（不再抓、不再提交）
+    #   删掉这个变量（或设成 true）→  恢复每天跑
+    if: vars.TABLE_ENABLED != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 90          # 全量要 25–35 分钟，留足余量
     steps:
@@ -51,8 +55,11 @@ jobs:
 
       - name: build table
         env:
-          # 定时任务没有 inputs，默认 full；手动触发可以选 prime（769 条，4–5 分钟）
-          SCOPE: ${{ github.event.inputs.scope || 'full' }}
+          # 抓取范围的三处来源，优先级从上到下：
+          #   1. 手动 Run workflow 时选的 scope
+          #   2. 仓库变量 TABLE_SCOPE（prime=769 条 4–5 分钟 / full=3893 条 25–35 分钟）
+          #   3. 兜底 full
+          SCOPE: ${{ github.event.inputs.scope || vars.TABLE_SCOPE || 'full' }}
         run: python vl_publish.py --scope "$SCOPE" --out table_v1.json.gz --rate 3 --workers 24
 
       - name: check table
