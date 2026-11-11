@@ -1,0 +1,26 @@
+name: purge-cdn
+
+# 每小时 :25 清一次 jsDelivr 缓存。
+#
+# 为什么单独一个任务：GitHub 自己的 raw.githubusercontent.com 有 3–10 分钟的
+# CDN 缓存，如果 :07 生成完就立刻 purge，jsDelivr 会回源拿到**旧的那一份**，
+# 然后把它缓存住（最长 12 小时）。等到 :25，raw 那边早就换新了，purge 一次
+# 就能让 CDN 拿到当小时的正确表。
+
+on:
+  schedule:
+    - cron: '25 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: purge
+        run: |
+          set -x
+          curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@main/table_v1.json.gz"

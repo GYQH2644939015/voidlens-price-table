@@ -44,7 +44,11 @@ git push -u origin main
 3. 打开仓库 → **Actions** 标签 → 选 `hourly-price-table` → **Run workflow** 手动跑一次
    （约 5–6 分钟，跑完仓库里会出现 `table_v1.json.gz`）
 
-之后每小时第 7 分钟自动跑，git 提交新表，并调用 jsDelivr 的 purge 接口清 CDN 缓存。
+之后每小时第 7 分钟自动跑、第 25 分钟自动清 CDN 缓存（`purge-cdn.yml`）。
+
+> 为什么分两个任务：GitHub 自己的 `raw.githubusercontent.com` 有 3–10 分钟缓存，
+> 生成完立刻 purge 会让 jsDelivr 回源拿到旧表并缓存住。等到 :25 再 purge 就稳了。
+> 客户端拿到的表最多比生成时间晚约 1 小时，对开核桃的决策没有影响。
 
 ## 每小时的负载
 

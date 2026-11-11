@@ -2,6 +2,9 @@ name: hourly-price-table
 
 # 每小时生成一次 wm 价目表并提交回仓库。
 # public 仓库的 Actions 分钟数不限；private 只有 2000 分钟/月，撑不住每小时一跑。
+#
+# 注意：CDN 缓存由单独的 purge-cdn.yml 在每小时 :25 清理（不要在这里立刻 purge ——
+# 那时 GitHub 自己的 raw CDN 还没更新，purge 反而会让 jsDelivr 缓存住旧的那份）。
 
 on:
   schedule:
@@ -50,9 +53,3 @@ jobs:
             git commit -m "table $(date -u +%FT%TZ)"
             git push
           fi
-
-      # jsDelivr 对分支引用有缓存（最长约 12 小时），每轮推一次 purge 让它立刻失效
-      - name: purge jsDelivr cache
-        if: always()
-        run: |
-          curl -fsS "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@main/table_v1.json.gz" || true
