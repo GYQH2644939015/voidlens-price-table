@@ -38,7 +38,9 @@ concurrency:
   # 独立分组：接力链自己有单链保证（开跑 prune + 收尾 handoff），
   # 不需要跟 price-table.yml 抢同一个组，否则一条卡住的旧班次会把整条链堵住
   # （2026-11-11 19:11 实测：旧班次占着 price-table 组，新班次一直 pending）。
-  group: price-chain
+  # 按模式分组：now（云函数闹钟）不能被正在睡觉的 chain 班次堵住；
+  # now 一开跑就会 prune 掉 chain 班次，正好把接力链收掉。
+  group: price-${{ github.event.inputs.phase || 'push' }}
   cancel-in-progress: false
 
 jobs:
