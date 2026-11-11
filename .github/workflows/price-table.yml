@@ -92,14 +92,3 @@ jobs:
           echo "::error::三次都推不上去，检查分支保护或权限"
           exit 1
 
-      - name: 上传到 OSS（国内分发源，没配就跳过）
-        continue-on-error: true
-        env:
-          OSS_AK: ${{ secrets.OSS_AK }}
-          OSS_SK: ${{ secrets.OSS_SK }}
-          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
-          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
-          OSS_KEY: ${{ vars.OSS_KEY }}
-        run: |
-          pip install --quiet oss2
-          python upload_oss.py table_v1.json.gz

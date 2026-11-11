@@ -79,7 +79,7 @@ jobs:
         if: github.event.inputs.phase != 'stop'
         run: python check_table.py table_v1.json.gz
 
-      - name: commit（默认每 6 小时才提交一次，其余时间只更新 OSS）
+      - name: commit（默认每 6 小时才提交一次，减少 bot 提交噪音）
         if: github.event.inputs.phase != 'stop'
         env:
           # 仓库提交节流：内容变了也不一定马上提交，降低「每小时一个 bot 提交」的噪音
@@ -111,20 +111,6 @@ jobs:
           git rebase --abort 2>/dev/null || true
           echo "::warning::仓库这份表没推上去（多半是并发 rebase 冲突），OSS 已经是最新的，下一班再来"
           exit 0
-
-      - name: 上传到 OSS（国内分发源，没配就跳过）
-        # 即使 commit 失败也传：客户端首选 OSS，仓库只是备份
-        if: always() && github.event.inputs.phase != 'stop'
-        continue-on-error: true
-        env:
-          OSS_AK: ${{ secrets.OSS_AK }}
-          OSS_SK: ${{ secrets.OSS_SK }}
-          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
-          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
-          OSS_KEY: ${{ vars.OSS_KEY }}
-        run: |
-          pip install --quiet oss2
-          python upload_oss.py table_v1.json.gz
 
       - name: 把下一班排上（now 不续班；其余情况失败也照排，链条不断）
         if: always() && github.event.inputs.phase != 'now' && github.event.inputs.phase != 'stop'
