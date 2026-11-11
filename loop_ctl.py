@@ -12,6 +12,7 @@
 
 子命令：
     wait      睡到下一个整点的 :07（UTC），最多 60 分钟
+    prune     取消其它还在跑/排队的本 workflow 班次（保证同时只有一条链）
     handoff   单飞守卫 + 派下一班（失败重试 3 次）
     info      打印本班信息
 """
@@ -57,10 +58,34 @@ def cmd_wait():
     return 0
 
 
+def _runs():
+    data = gh_api('repos/%s/actions/workflows/%s/runs?per_page=40' % (repo(), WORKFLOW))
+    return data.get('workflow_runs') or []
+
+
+def cmd_prune():
+    """只留本班：取消其它还在跑 / 排队 / 等待的班次。
+
+    2026-11-11 19:04 留下过两条链（一条用旧版 workflow 的 concurrency 组），
+    两班会同时抓表、在 commit 步互撞（18:53 那次 rebase 冲突就是这么来的）。
+    """
+    me = str(os.environ.get('GITHUB_RUN_ID', '0'))
+    others = [r for r in _runs() if str(r.get('id')) != me and r.get('status') in ACTIVE]
+    if not others:
+        print('没有其它班次，本班独占')
+        return 0
+    for r in others:
+        rid = str(r.get('id'))
+        out = subprocess.run(['gh', 'run', 'cancel', rid], capture_output=True, text=True)
+        print('取消 run %s（%s）：%s' % (rid, r.get('status'),
+                                        'ok' if out.returncode == 0
+                                        else (out.stderr or out.stdout).strip()[:120]))
+    return 0
+
+
 def cmd_handoff():
     me = str(os.environ.get('GITHUB_RUN_ID', '0'))
-    runs = gh_api('repos/%s/actions/workflows/%s/runs?per_page=30' % (repo(), WORKFLOW))
-    others = [r for r in (runs.get('workflow_runs') or [])
+    others = [r for r in _runs()
               if str(r.get('id')) != me and r.get('status') in ACTIVE]
     if others:
         print('已有别的班次在跑/排队，本班不再派（防止链条分叉）：')
@@ -91,7 +116,7 @@ def cmd_info():
 
 
 def main(argv):
-    table = {'wait': cmd_wait, 'handoff': cmd_handoff, 'info': cmd_info}
+    table = {'wait': cmd_wait, 'prune': cmd_prune, 'handoff': cmd_handoff, 'info': cmd_info}
     if len(argv) < 2 or argv[1] not in table:
         print(__doc__)
         return 2

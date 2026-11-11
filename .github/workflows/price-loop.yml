@@ -1,13 +1,18 @@
 # 价格表的「自动接力链」——不依赖 GitHub 的 schedule。
 #
-# 为什么要有这条：本仓库的 `schedule` 从未触发过（建仓以来三条 workflow 全部 0 条
-# schedule 运行记录；push / 手动都是秒级响应），cron 不可依赖。
-# 于是每一班用 GITHUB_TOKEN 派下一班 workflow_dispatch，下一班自己睡到下一个整点 :07 抓表。
-# 官方文档：GITHUB_TOKEN 触发的事件不产生新运行，例外正是 workflow_dispatch / repository_dispatch。
+# 为什么要有这条：本仓库的 `schedule` 从未触发过（2026-11-11 12:02Z 建仓到 11-12 03:00Z，
+# 三条 workflow 全部 0 条 schedule 运行记录；而 push / 手动都是秒级响应），cron 不可依赖。
 #
-# 代价：同一时间恒有一个 runner 在睡觉（公共仓库分钟数不限）。
-# 重启：改一行 LOOP_KICK 再 push 即可（链条断了也能靠这一下接上）。
-# 停掉：仓库变量 TABLE_OFF=true（和 price-table.yml 共用同一开关）。
+# 机制：每一班跑完，用 GITHUB_TOKEN 派下一班 workflow_dispatch；下一班自己睡到下一个整点 :07 抓表。
+# 依据：官方文档「用 GITHUB_TOKEN 执行任务时，由它触发的事件不产生新的运行，例外是
+# workflow_dispatch 与 repository_dispatch」——所以这张表能自己叫醒自己。
+#
+# 单链保证：开跑先 prune（取消其它还在跑/排队的本 workflow 班次），收尾再 handoff；
+# handoff 若发现还有别班在跑就跳过，永远不会分叉出第二条链。
+#
+# 代价：同一时间恒有一个 runner 在睡（公共仓库 Actions 分钟数不限）。
+# 重启：改 LOOP_KICK 再 push 一次即可把链接上（链条断了也靠这一下接回）。
+# 停掉：仓库变量 TABLE_OFF=true（与 price-table.yml 共用）。
 
 name: price-loop
 
@@ -24,11 +29,11 @@ on:
 
 permissions:
   contents: write
-  actions: write          # 派下一班（workflow_dispatch）需要
+  actions: write          # 派下一班 / 取消重复班次
 
 concurrency:
   # 和 price-table.yml 用同一个组：手动 / push 触发的那次抓取不会和接力链撞车
-  # （撞车的后果见 2026-11-11 18:53 那次：两条同时跑，第二条在 commit 步骤 rebase 冲突失败）
+  # （撞车的后果见 2026-11-11 18:53：两条同时跑，第二条在 commit 步 rebase 冲突失败）
   group: price-table
   cancel-in-progress: false
 
@@ -47,10 +52,10 @@ jobs:
       - name: deps
         run: pip install --quiet -r requirements.txt
 
-      - name: 先把下一班排上（本班失败也不断链）
+      - name: 只留本班（取消重复的链）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python loop_ctl.py handoff
+        run: python loop_ctl.py prune
 
       - name: 等到下一个整点 :07
         if: github.event_name == 'workflow_dispatch'
@@ -83,3 +88,9 @@ jobs:
           done
           echo "::error::三次都推不上去，检查分支保护或权限"
           exit 1
+
+      - name: 把下一班排上（本班失败也照排，链条不断）
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python loop_ctl.py handoff
