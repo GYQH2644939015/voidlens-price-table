@@ -1,11 +1,13 @@
 name: price-table
 
-# 每天一次，抓 wm 全量价目表（物品表里的几千条）并提交回仓库。
+# 每小时一次，抓「热区」价目表：Prime 759 + 安魂 mod 8 + 阿耶檀识青蓝星/琥珀星 2 = 769 条。
 #
-# 为什么是每天：全量 3893 条 ≈ 4000–5800 次请求（3 请求/秒）≈ 25–32 分钟，
-# 一天一次对 wm 的压力是 0.05 请求/秒；每小时一次就变成 1.4 请求/秒，没必要。
+# 为什么是 769 条：这几乎就是开核桃时真正会看到的东西（奖励卡里能出的 Prime 部件、
+# 安魂 mod、两种阿耶檀识星）。全量 3893 条一天只能跑一次（要 25–35 分钟），
+# 而这 769 条 5 分钟就够，可以每小时来一遍。
 #
-# 时间：12:07 UTC = 20:07 北京时间（晚场开打前刚好刷完）。
+# 想临时抓全量：Actions → price-table → Run workflow → scope 选 full，
+# 或者在仓库变量里设 TABLE_SCOPE=full（详见 README）。
 # --workers 24：GitHub runner 到 wm 的往返约 8–10 秒，8 个线程只能跑到 0.6 条/秒
 # （实测 35 分钟才抓 1350 条）；24 个线程才能把 3 请求/秒的桶喂满，约 25–35 分钟跑完。
 # public 仓库的 Actions 分钟数不限；private 只有 2000 分钟/月，这个任务一天一次也够，
@@ -13,15 +15,15 @@ name: price-table
 
 on:
   schedule:
-    - cron: '7 12 * * *'
+    - cron: '7 * * * *'
   workflow_dispatch:
     inputs:
       scope:
         description: '抓取范围（full=全部 3893 条；prime=Prime+安魂+星 769 条）'
         required: false
-        default: 'full'
+        default: 'prime'
         type: choice
-        options: ['full', 'prime']
+        options: ['prime', 'full']
   push:
     paths-ignore:
       - 'table_v1.json.gz'
@@ -43,7 +45,7 @@ jobs:
     # 说明：变量不存在时表达式为 null，null != 'true' 成立，所以默认是「开」。
     if: vars.TABLE_OFF != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 90          # 全量要 25–35 分钟，留足余量
+    timeout-minutes: 30          # 769 条约 5 分钟，留足余量
     steps:
       - uses: actions/checkout@v4
 
@@ -58,9 +60,9 @@ jobs:
         env:
           # 抓取范围的三处来源，优先级从上到下：
           #   1. 手动 Run workflow 时选的 scope
-          #   2. 仓库变量 TABLE_SCOPE（prime=769 条 4–5 分钟 / full=3893 条 25–35 分钟）
-          #   3. 兜底 full
-          SCOPE: ${{ github.event.inputs.scope || vars.TABLE_SCOPE || 'full' }}
+          #   2. 仓库变量 TABLE_SCOPE（prime=769 条 5 分钟 / full=3893 条 25–35 分钟）
+          #   3. 兜底 prime
+          SCOPE: ${{ github.event.inputs.scope || vars.TABLE_SCOPE || 'prime' }}
         run: python vl_publish.py --scope "$SCOPE" --out table_v1.json.gz --rate 3 --workers 24
 
       - name: check table

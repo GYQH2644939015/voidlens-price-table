@@ -1,10 +1,11 @@
 # voidlens-price-table
 
-VoidLens（虚空透镜）用的 **warframe.market 全量价目表**，每天由 GitHub Actions 自动生成一次。
+VoidLens（虚空透镜）用的 **warframe.market 热区价目表**，每小时由 GitHub Actions 自动生成一次。
 
-- **范围**：物品表里**全部 3893 条**（Prime 759 + 安魂 mod 8 + 阿耶檀识星 2 + 其余武器/塑像/遗物/杂项）
-- **产出**：`table_v1.json.gz`，**约 30 KB**
-- **周期**：每天 12:07 UTC（20:07 北京）；一次约 4000–5800 次请求、25–35 分钟
+- **范围**：Prime 759 + 安魂 mod 8 + 阿耶檀识青蓝星/琥珀星 2 = **769 条**（开核桃真正会看到的东西）
+- **产出**：`table_v1.json.gz`，**约 4 KB**
+- **周期**：每小时第 7 分钟；一次约 800 次请求、5 分钟
+- **想抓全量 3893 条**：手动 Run workflow 时 scope 选 `full`，或设仓库变量 `TABLE_SCOPE=full`（约 25–35 分钟）
 - **取价口径**：与 VoidLens 内 `MarketClient.estimate()` 完全一致
   （48h 成交量够 → 报成交中位；不够 → `/top` 稳健挂单中位；两边都有 → 6:4 合成）
 - **成本**：0 元。抓取用 public 仓库的免费 Actions 分钟数，分发用 jsDelivr 免费 CDN
@@ -47,9 +48,9 @@ git push -u origin main
 ```
 
 3. 打开仓库 → **Actions** 标签 → 选 `price-table` → **Run workflow** 手动跑一次
-   （约 25–35 分钟，跑完仓库里会出现 `table_v1.json.gz`）
+   （约 5 分钟，跑完仓库里会出现 `table_v1.json.gz`）
 
-之后每天 12:07 UTC 自动跑、12:25 UTC 自动清 CDN 缓存（`purge-cdn.yml`）。
+之后每小时第 7 分钟自动跑、第 25 分钟自动清 CDN 缓存（`purge-cdn.yml`）。
 
 > 为什么分两个任务：GitHub 自己的 `raw.githubusercontent.com` 有 3–10 分钟缓存，
 > 生成完立刻 purge 会让 jsDelivr 回源拿到旧表并缓存住。等到 :25 再 purge 就稳了。
@@ -62,7 +63,7 @@ git push -u origin main
 | 变量 | 作用 | 不设置时 |
 |---|---|---|
 | `TABLE_OFF = true` | **关掉整个定时任务**（跳过 fetch + commit，Actions 里显示 skipped） | 不设置 = 照常每天跑 |
-| `TABLE_SCOPE = prime` | 把每天那次降级成 **769 条**（4–5 分钟），`full` 恢复全量 | 不设置 = `full`（3893 条） |
+| `TABLE_SCOPE = full` | 把每小时那次升级成 **全量 3893 条**（25–35 分钟，别每小时都这么干） | 不设置 = `prime`（769 条） |
 
 恢复：把 `TABLE_OFF` 删掉（或设成 `false`）、把 `TABLE_SCOPE` 设回 `full`。
 
@@ -73,14 +74,14 @@ git push -u origin main
 
 手动补跑：Actions → `price-table` → **Run workflow**，可以临时选 `full` 或 `prime`，不影响定时任务的默认值。
 
-## 每小时的负载
+## 负载
 
 | 项 | 数值 |
 |---|---|
-| 请求数 | 约 4000–5800 次（多数条目 1 次 `/v1/.../statistics` 就够，冷门件再补一次 `/top`） |
-| 限流 | 3 请求/秒（wm 官方建议上限），并发 8 |
-| 耗时 | 约 25–35 分钟 |
-| 平均速率 | 0.05 请求/秒 —— 一天一次，对 wm 几乎无感 |
+| 请求数 | 约 800 次（多数条目 1 次 `/v1/.../statistics` 就够） |
+| 限流 | 3 请求/秒（wm 官方建议上限），并发 24 |
+| 耗时 | 约 5 分钟 |
+| 平均速率 | 0.22 请求/秒 —— 是建议上限的 1/14 |
 
 改周期：`.github/workflows/price-table.yml` 里的 `cron`。
 想换成 769 条的小表：把 `--scope full` 去掉（默认就是 prime+安魂+星）。
@@ -93,7 +94,7 @@ git push -u origin main
 | 出现 429 | 限流撞上了 | 把 `--rate 3` 降到 `--rate 2`，或周期改 2 小时 |
 | 客户端拿到旧表 | jsDelivr 对分支引用有缓存（最长约 12 小时） | workflow 每次都会 purge；仍不对就改用 `raw.githubusercontent.com` 地址 |
 | Actions 没按时跑 | GitHub 的 cron 是尽力而为，高峰会延迟几分钟 | 对天级表无影响；客户端显示“☁ 20:07 / ☁ 昨 20:07” |
-| 任务跑不完（>90 分钟） | 极少见，通常是 wm 大面积 429 | 看日志里的 `missing` 数量；临时把周期放宽或把 `--rate` 降到 2 |
+| 任务跑不完（>30 分钟） | 极少见，通常是 wm 大面积 429 | 看日志里的 `missing` 数量；临时把 `--rate` 降到 2 |
 
 ## 文件
 

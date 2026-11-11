@@ -1,6 +1,6 @@
 name: purge-cdn
 
-# 每天一次，在价目表生成之后（12:07 UTC）的 12:25 UTC 清 jsDelivr 缓存。
+# 每小时一次，在价目表生成之后（:07）的 :25 清 jsDelivr 缓存。
 #
 # 为什么不能生成完立刻 purge：GitHub 自己的 raw.githubusercontent.com 有 3–10 分钟
 # CDN 缓存，立刻 purge 会让 jsDelivr 回源拿到**旧的那一份**，然后缓存住（最长 12 小时）。
@@ -8,7 +8,7 @@ name: purge-cdn
 
 on:
   schedule:
-    - cron: '25 12 * * *'
+    - cron: '25 * * * *'
   workflow_dispatch:
 
 permissions:
