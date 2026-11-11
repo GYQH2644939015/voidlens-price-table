@@ -1,15 +1,18 @@
-name: hourly-price-table
+name: price-table
 
-# 每小时生成一次 wm 价目表并提交回仓库。
-# public 仓库的 Actions 分钟数不限；private 只有 2000 分钟/月，撑不住每小时一跑。
+# 每天一次，抓 wm 全量价目表（物品表里的几千条）并提交回仓库。
 #
-# 注意：CDN 缓存由单独的 purge-cdn.yml 在每小时 :25 清理（不要在这里立刻 purge ——
-# 那时 GitHub 自己的 raw CDN 还没更新，purge 反而会让 jsDelivr 缓存住旧的那份）。
+# 为什么是每天：全量 3893 条 ≈ 4000–5800 次请求（3 请求/秒）≈ 25–32 分钟，
+# 一天一次对 wm 的压力是 0.05 请求/秒；每小时一次就变成 1.4 请求/秒，没必要。
+#
+# 时间：12:07 UTC = 20:07 北京时间（晚场开打前刚好刷完）。
+# public 仓库的 Actions 分钟数不限；private 只有 2000 分钟/月，这个任务一天一次也够，
+# 但仍然是 public 更省心。
 
 on:
   schedule:
-    - cron: '7 * * * *'        # 每小时第 7 分钟，避开整点排队
-  workflow_dispatch:           # 手动补跑
+    - cron: '7 12 * * *'
+  workflow_dispatch:
   push:
     paths-ignore:
       - 'table_v1.json.gz'
@@ -25,7 +28,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90          # 全量要 25–35 分钟，留足余量
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +40,7 @@ jobs:
         run: pip install --quiet -r requirements.txt
 
       - name: build table
-        run: python vl_publish.py --out table_v1.json.gz --rate 3 --workers 8
+        run: python vl_publish.py --scope full --out table_v1.json.gz --rate 3 --workers 8
 
       - name: check table
         run: python check_table.py table_v1.json.gz
@@ -52,8 +55,6 @@ jobs:
             exit 0
           fi
           git commit -m "table $(date -u +%FT%TZ)"
-          # 抓取要 4-6 分钟，期间有人往 main 推过（比如改了文档）就会被拒：
-          # rebase 到最新 main 再推，最多三次
           for i in 1 2 3; do
             if git pull --rebase --autostash origin main && git push; then
               echo "pushed on attempt $i"
