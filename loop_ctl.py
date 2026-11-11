@@ -69,6 +69,11 @@ def cmd_prune():
     2026-11-11 19:04 留下过两条链（一条用旧版 workflow 的 concurrency 组），
     两班会同时抓表、在 commit 步互撞（18:53 那次 rebase 冲突就是这么来的）。
     """
+    if repo_is_private():
+        print('::warning::仓库已是私有：接力链会吃掉 2000 分钟/月的免费额度，本班不再续班')
+        print('想继续：把仓库改回 public，或改 LOOP_KICK 再 push 一次')
+        return 0
+
     me = str(os.environ.get('GITHUB_RUN_ID', '0'))
     others = [r for r in _runs() if str(r.get('id')) != me and r.get('status') in ACTIVE]
     if not others:
@@ -83,7 +88,21 @@ def cmd_prune():
     return 0
 
 
+def repo_is_private():
+    """公共仓库的 Actions 分钟数不计费；一旦转私有，免费额度只有 2000 分钟/月，
+    而这条接力链一天要占约 24 × 55 ≈ 1300 分钟——一天多就会超额。所以私有就断链。"""
+    try:
+        return bool(gh_api('repos/%s' % repo()).get('private'))
+    except Exception as exc:
+        print('查仓库可见性失败（按“不私有”处理）：%s' % str(exc)[:120])
+        return False
+
+
 def cmd_handoff():
+    if repo_is_private():
+        print('::warning::仓库已是私有：接力链会吃掉 2000 分钟/月的免费额度，本班不再续班')
+        return 0
+
     me = str(os.environ.get('GITHUB_RUN_ID', '0'))
     others = [r for r in _runs()
               if str(r.get('id')) != me and r.get('status') in ACTIVE]
